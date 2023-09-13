@@ -1,13 +1,20 @@
 use std::fmt;
 
-pub fn parse(line: &str) -> Node {
+pub fn parse(line: &str) -> Result<Node, Error> {
     let mut scanner = Scanner::new(line);
-    parse_imply(&mut scanner).unwrap()
+    parse_imply(&mut scanner).and_then(|node| {
+        if scanner.is_end() {
+            Ok(node)
+        } else {
+            Err(Error::Character(scanner.cursor))
+        }
+    })
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Error {
     Character(usize),
+    EndOfLine(),
 }
 
 #[derive(Eq, PartialEq)]
@@ -95,37 +102,32 @@ impl fmt::Debug for Operator {
 }
 
 fn parse_imply(scanner: &mut Scanner) -> Result<Node, Error> {
-    parse_or(scanner).and_then(|lhs| match scanner.peek() {
-        Some('-') => {
-            scanner.pop();
-            match scanner.pop() {
-                Some('>') => parse_imply(scanner).map(|rhs| Node::imply(lhs, rhs)),
-                _ => {
-                    unimplemented!()
-                }
-            }
+    parse_or(scanner).and_then(|lhs| {
+        if scanner.take("->").is_ok() {
+            parse_imply(scanner).map(|rhs| Node::imply(lhs, rhs))
+        } else {
+            Ok(lhs)
         }
-        _ => Ok(lhs),
     })
 }
 
 fn parse_or(scanner: &mut Scanner) -> Result<Node, Error> {
-    parse_and(scanner).and_then(|lhs| match scanner.peek() {
-        Some('|') => {
-            scanner.pop();
+    parse_and(scanner).and_then(|lhs| {
+        if scanner.take("|").is_ok() {
             parse_or(scanner).map(|rhs| Node::or(lhs, rhs))
+        } else {
+            Ok(lhs)
         }
-        _ => Ok(lhs),
     })
 }
 
 fn parse_and(scanner: &mut Scanner) -> Result<Node, Error> {
     let lhs = parse_not(scanner);
     let mut acc = lhs;
-    while let Some('&') = scanner.peek() {
-        scanner.pop();
+    while scanner.take("&").is_ok() {
         acc = acc.and_then(|a| parse_not(scanner).map(|rhs| Node::and(a, rhs)));
     }
+
     acc
 }
 
@@ -137,32 +139,29 @@ fn parse_not(scanner: &mut Scanner) -> Result<Node, Error> {
         }
         Some('(') => {
             scanner.pop();
-            let expr = parse_imply(scanner);
-            match scanner.pop() {
-                Some(')') => expr,
-                _ => unimplemented!(),
-            }
+            parse_imply(scanner).and_then(|expr| scanner.take(")").map(|_| expr))
         }
         Some(_) => parse_var(scanner),
-        None => todo!(),
+        None => Err(Error::EndOfLine()),
     }
 }
 
 fn parse_var(scanner: &mut Scanner) -> Result<Node, Error> {
-    let mut acc = String::new();
+    let mut name = String::new();
     while let Some(c) = scanner.peek() {
         if c >= &'A' && c <= &'Z' || c >= &'0' && c <= &'9' {
-            acc.push(*c);
+            name.push(*c);
+
             scanner.pop();
         } else {
             break;
         }
     }
 
-    if acc.is_empty() {
+    if name.is_empty() {
         Err(Error::Character(scanner.cursor))
     } else {
-        Ok(Node::var(&acc))
+        Ok(Node::var(&name))
     }
 }
 
@@ -179,6 +178,34 @@ impl Scanner {
         }
     }
 
+    fn take_char(&mut self, target: &char) -> Result<(), Error> {
+        match self.peek() {
+            Some(character) => {
+                if target == character {
+                    self.cursor += 1;
+
+                    Ok(())
+                } else {
+                    Err(Error::Character(self.cursor))
+                }
+            }
+            None => Err(Error::Character(self.cursor)),
+        }
+    }
+
+    fn take(&mut self, target: &str) -> Result<(), Error> {
+        for char in target.chars() {
+            match self.take_char(&char) {
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn peek(&self) -> Option<&char> {
         self.chars.get(self.cursor)
     }
@@ -193,6 +220,10 @@ impl Scanner {
             None => None,
         }
     }
+
+    fn is_end(&self) -> bool {
+        self.chars.len() == self.cursor
+    }
 }
 
 #[cfg(test)]
@@ -200,78 +231,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_end_of_line() {
+        let line = "!";
+        let should_fail = parse(line);
+        assert!(should_fail.is_err());
+        assert_eq!(should_fail.unwrap_err(), Error::EndOfLine())
+    }
+
+    #[test]
+    fn parse_character() {
+        let line = "P/Q";
+        let should_fail = parse(line);
+        assert!(should_fail.is_err());
+        assert_eq!(should_fail.unwrap_err(), Error::Character(1))
+    }
+
+    #[test]
     fn parse_var() {
         let line = "P";
-        assert_eq!(Node::var("P"), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::var("P"));
     }
 
     #[test]
     fn parse_var_long_name() {
         let line = "P10";
-        assert_eq!(Node::var("P10"), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::var("P10"));
     }
 
     #[test]
     fn parse_not() {
         let line = "!P";
-        assert_eq!(Node::not(Node::var("P")), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::not(Node::var("P")));
     }
 
     #[test]
     fn parse_and() {
         let line = "P&Q";
-        assert_eq!(Node::and(Node::var("P"), Node::var("Q")), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::and(Node::var("P"), Node::var("Q")));
     }
 
     #[test]
     fn parse_and_and() {
         let line = "P&Q&R";
+        let result = parse(line);
+        assert!(result.is_ok());
         assert_eq!(
-            Node::and(Node::and(Node::var("P"), Node::var("Q")), Node::var("R")),
-            parse(line)
+            result.unwrap(),
+            Node::and(Node::and(Node::var("P"), Node::var("Q")), Node::var("R"))
         );
     }
 
     #[test]
     fn parse_or() {
         let line = "P|Q";
-        assert_eq!(Node::or(Node::var("P"), Node::var("Q")), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::or(Node::var("P"), Node::var("Q")));
     }
 
     #[test]
     fn parse_imply() {
         let line = "P->Q";
-        assert_eq!(Node::imply(Node::var("P"), Node::var("Q")), parse(line));
+        let result = parse(line);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Node::imply(Node::var("P"), Node::var("Q")));
     }
 
     #[test]
     fn parse_with_brackets() {
         let line = "!(P->Q)";
+        let result = parse(line);
+        assert!(result.is_ok());
         assert_eq!(
-            Node::not(Node::imply(Node::var("P"), Node::var("Q"))),
-            parse(line)
+            result.unwrap(),
+            Node::not(Node::imply(Node::var("P"), Node::var("Q")))
         );
     }
 
     #[test]
     fn parse_not_so_complex() {
         let line = "!R11&S|!T&U&V";
+        let result = parse(line);
+        assert!(result.is_ok());
         assert_eq!(
+            result.unwrap(),
             Node::or(
                 Node::and(Node::not(Node::var("R11")), Node::var("S")),
                 Node::and(
                     Node::and(Node::not(Node::var("T")), Node::var("U")),
-                    Node::var("V")
+                    Node::var("V"),
                 ),
-            ),
-            parse(line)
+            )
         );
     }
 
     #[test]
     fn parse_complex_expression() {
         let line = "P->!QQ->!R10&S|!T&U&V";
+        let result = parse(line);
+        assert!(result.is_ok());
         assert_eq!(
+            result.unwrap(),
             Node::imply(
                 Node::var("P"),
                 Node::imply(
@@ -284,8 +352,7 @@ mod tests {
                         ),
                     ),
                 ),
-            ),
-            parse(line)
+            )
         );
     }
 }
