@@ -24,6 +24,39 @@ pub enum Node {
     },
 }
 
+impl Node {
+    fn var(name: &str) -> Node {
+        Node::Var(name.to_string())
+    }
+
+    fn not(node: Node) -> Node {
+        Node::UnaryExpr {
+            op: Operator::Not,
+            child: Box::new(node),
+        }
+    }
+
+    fn and(lhs: Node, rhs: Node) -> Node {
+        Node::binary(Operator::And, lhs, rhs)
+    }
+
+    fn or(lhs: Node, rhs: Node) -> Node {
+        Node::binary(Operator::Or, lhs, rhs)
+    }
+
+    fn imply(lhs: Node, rhs: Node) -> Node {
+        Node::binary(Operator::Imply, lhs, rhs)
+    }
+
+    fn binary(op: Operator, lhs: Node, rhs: Node) -> Node {
+        Node::BinaryExpr {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -66,11 +99,7 @@ fn parse_imply(scanner: &mut Scanner) -> Result<Node, Error> {
         Some('-') => {
             scanner.pop();
             match scanner.pop() {
-                Some('>') => parse_imply(scanner).map(|rhs| Node::BinaryExpr {
-                    op: Operator::Imply,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }),
+                Some('>') => parse_imply(scanner).map(|rhs| Node::imply(lhs, rhs)),
                 _ => {
                     unimplemented!()
                 }
@@ -84,11 +113,7 @@ fn parse_or(scanner: &mut Scanner) -> Result<Node, Error> {
     parse_and(scanner).and_then(|lhs| match scanner.peek() {
         Some('|') => {
             scanner.pop();
-            parse_or(scanner).map(|rhs| Node::BinaryExpr {
-                op: Operator::Or,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            })
+            parse_or(scanner).map(|rhs| Node::or(lhs, rhs))
         }
         _ => Ok(lhs),
     })
@@ -99,13 +124,7 @@ fn parse_and(scanner: &mut Scanner) -> Result<Node, Error> {
     let mut acc = lhs;
     while let Some('&') = scanner.peek() {
         scanner.pop();
-        acc = acc.and_then(|a| {
-            parse_not(scanner).map(|rhs| Node::BinaryExpr {
-                op: Operator::And,
-                lhs: Box::new(a),
-                rhs: Box::new(rhs),
-            })
-        });
+        acc = acc.and_then(|a| parse_not(scanner).map(|rhs| Node::and(a, rhs)));
     }
     acc
 }
@@ -114,10 +133,7 @@ fn parse_not(scanner: &mut Scanner) -> Result<Node, Error> {
     match scanner.peek() {
         Some('!') => {
             scanner.pop();
-            parse_not(scanner).map(|r| Node::UnaryExpr {
-                op: Operator::Not,
-                child: Box::new(r),
-            })
+            parse_not(scanner).map(|r| Node::not(r))
         }
         Some('(') => {
             scanner.pop();
@@ -146,7 +162,7 @@ fn parse_var(scanner: &mut Scanner) -> Result<Node, Error> {
     if acc.is_empty() {
         Err(Error::Character(scanner.cursor))
     } else {
-        Ok(Node::Var(acc))
+        Ok(Node::var(&acc))
     }
 }
 
@@ -186,53 +202,32 @@ mod tests {
     #[test]
     fn parse_var() {
         let line = "P";
-        assert_eq!(Node::Var("P".to_string()), parse(line));
+        assert_eq!(Node::var("P"), parse(line));
     }
 
     #[test]
     fn parse_var_long_name() {
         let line = "P10";
-        assert_eq!(Node::Var("P10".to_string()), parse(line));
+        assert_eq!(Node::var("P10"), parse(line));
     }
 
     #[test]
     fn parse_not() {
         let line = "!P";
-        assert_eq!(
-            Node::UnaryExpr {
-                op: Operator::Not,
-                child: Box::new(Node::Var("P".to_string()))
-            },
-            parse(line)
-        );
+        assert_eq!(Node::not(Node::var("P")), parse(line));
     }
 
     #[test]
     fn parse_and() {
         let line = "P&Q";
-        assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::And,
-                lhs: Box::new(Node::Var("P".to_string())),
-                rhs: Box::new(Node::Var("Q".to_string()))
-            },
-            parse(line)
-        );
+        assert_eq!(Node::and(Node::var("P"), Node::var("Q")), parse(line));
     }
 
     #[test]
     fn parse_and_and() {
         let line = "P&Q&R";
         assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::And,
-                lhs: Box::new(Node::BinaryExpr {
-                    op: Operator::And,
-                    lhs: Box::new(Node::Var("P".to_string())),
-                    rhs: Box::new(Node::Var("Q".to_string()))
-                }),
-                rhs: Box::new(Node::Var("R".to_string()))
-            },
+            Node::and(Node::and(Node::var("P"), Node::var("Q")), Node::var("R")),
             parse(line)
         );
     }
@@ -240,72 +235,35 @@ mod tests {
     #[test]
     fn parse_or() {
         let line = "P|Q";
-        assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::Or,
-                lhs: Box::new(Node::Var("P".to_string())),
-                rhs: Box::new(Node::Var("Q".to_string()))
-            },
-            parse(line)
-        );
+        assert_eq!(Node::or(Node::var("P"), Node::var("Q")), parse(line));
     }
 
     #[test]
     fn parse_imply() {
         let line = "P->Q";
-        assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::Imply,
-                lhs: Box::new(Node::Var("P".to_string())),
-                rhs: Box::new(Node::Var("Q".to_string()))
-            },
-            parse(line)
-        );
+        assert_eq!(Node::imply(Node::var("P"), Node::var("Q")), parse(line));
     }
 
     #[test]
     fn parse_with_brackets() {
         let line = "!(P->Q)";
         assert_eq!(
-            Node::UnaryExpr {
-                op: Operator::Not,
-                child: Box::new(Node::BinaryExpr {
-                    op: Operator::Imply,
-                    lhs: Box::new(Node::Var("P".to_string())),
-                    rhs: Box::new(Node::Var("Q".to_string()))
-                })
-            },
+            Node::not(Node::imply(Node::var("P"), Node::var("Q"))),
             parse(line)
         );
     }
 
     #[test]
-    fn parse_not_so_complext() {
-        let line = "!R10&S|!T&U&V";
+    fn parse_not_so_complex() {
+        let line = "!R11&S|!T&U&V";
         assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::Or,
-                lhs: Box::new(Node::BinaryExpr {
-                    op: Operator::And,
-                    lhs: Box::new(Node::UnaryExpr {
-                        op: Operator::Not,
-                        child: Box::new(Node::Var("R10".to_string()))
-                    }),
-                    rhs: Box::new(Node::Var("S".to_string()))
-                }),
-                rhs: Box::new(Node::BinaryExpr {
-                    op: Operator::And,
-                    lhs: Box::new(Node::BinaryExpr {
-                        op: Operator::And,
-                        lhs: Box::new(Node::UnaryExpr {
-                            op: Operator::Not,
-                            child: Box::new(Node::Var("T".to_string()))
-                        }),
-                        rhs: Box::new(Node::Var("U".to_string()))
-                    }),
-                    rhs: Box::new(Node::Var("V".to_string()))
-                })
-            },
+            Node::or(
+                Node::and(Node::not(Node::var("R11")), Node::var("S")),
+                Node::and(
+                    Node::and(Node::not(Node::var("T")), Node::var("U")),
+                    Node::var("V")
+                ),
+            ),
             parse(line)
         );
     }
@@ -314,40 +272,19 @@ mod tests {
     fn parse_complex_expression() {
         let line = "P->!QQ->!R10&S|!T&U&V";
         assert_eq!(
-            Node::BinaryExpr {
-                op: Operator::Imply,
-                lhs: Box::new(Node::Var("P".to_string())),
-                rhs: Box::new(Node::BinaryExpr {
-                    op: Operator::Imply,
-                    lhs: Box::new(Node::UnaryExpr {
-                        op: Operator::Not,
-                        child: Box::new(Node::Var("QQ".to_string()))
-                    }),
-                    rhs: Box::new(Node::BinaryExpr {
-                        op: Operator::Or,
-                        lhs: Box::new(Node::BinaryExpr {
-                            op: Operator::And,
-                            lhs: Box::new(Node::UnaryExpr {
-                                op: Operator::Not,
-                                child: Box::new(Node::Var("R10".to_string()))
-                            }),
-                            rhs: Box::new(Node::Var("S".to_string()))
-                        }),
-                        rhs: Box::new(Node::BinaryExpr {
-                            op: Operator::And,
-                            lhs: Box::new(Node::BinaryExpr {
-                                op: Operator::And,
-                                lhs: Box::new(Node::UnaryExpr {
-                                    op: Operator::Not,
-                                    child: Box::new(Node::Var("T".to_string()))
-                                }),
-                                rhs: Box::new(Node::Var("U".to_string()))
-                            }),
-                            rhs: Box::new(Node::Var("V".to_string()))
-                        })
-                    })
-                })
-            },
+            Node::imply(
+                Node::var("P"),
+                Node::imply(
+                    Node::not(Node::var("QQ")),
+                    Node::or(
+                        Node::and(Node::not(Node::var("R10")), Node::var("S")),
+                        Node::and(
+                            Node::and(Node::not(Node::var("T")), Node::var("U")),
+                            Node::var("V"),
+                        ),
+                    ),
+                ),
+            ),
             parse(line)
         );
     }
