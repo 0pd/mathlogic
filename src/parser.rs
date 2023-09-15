@@ -32,26 +32,26 @@ pub enum Node {
 }
 
 impl Node {
-    fn var(name: &str) -> Node {
+    pub(crate) fn var(name: &str) -> Node {
         Node::Var(name.to_string())
     }
 
-    fn not(node: Node) -> Node {
+    pub(crate) fn not(node: Node) -> Node {
         Node::UnaryExpr {
             op: Operator::Not,
             child: Box::new(node),
         }
     }
 
-    fn and(lhs: Node, rhs: Node) -> Node {
+    pub(crate) fn and(lhs: Node, rhs: Node) -> Node {
         Node::binary(Operator::And, lhs, rhs)
     }
 
-    fn or(lhs: Node, rhs: Node) -> Node {
+    pub(crate) fn or(lhs: Node, rhs: Node) -> Node {
         Node::binary(Operator::Or, lhs, rhs)
     }
 
-    fn imply(lhs: Node, rhs: Node) -> Node {
+    pub(crate) fn imply(lhs: Node, rhs: Node) -> Node {
         Node::binary(Operator::Imply, lhs, rhs)
     }
 

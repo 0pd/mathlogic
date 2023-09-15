@@ -1,6 +1,7 @@
 use std::{env, fs};
 
 mod parser;
+mod checker;
 
 fn main() {
     let filename = env::args().nth(1).expect("Expected filename");
