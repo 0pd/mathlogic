@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fmt::Formatter;
 
 pub fn parse(line: &str) -> Result<Node, Error> {
     let mut scanner = Scanner::new(line);
@@ -17,7 +18,7 @@ pub enum Error {
     EndOfLine(),
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Hash)]
 pub enum Node {
     Var(String),
     UnaryExpr {
@@ -64,23 +65,29 @@ impl Node {
     }
 }
 
-impl fmt::Debug for Node {
+impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Node::Var(name) => {
                 write!(f, "{}", name)
             }
             Node::UnaryExpr { op, child } => {
-                write!(f, "({:?}{:?})", op, child)
+                write!(f, "({:?}{})", op, child)
             }
             Node::BinaryExpr { op, lhs, rhs } => {
-                write!(f, "({:?},{:?},{:?})", op, lhs, rhs)
+                write!(f, "({:?},{},{})", op, lhs, rhs)
             }
         }
     }
 }
 
-#[derive(Eq, PartialEq)]
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+#[derive(Eq, PartialEq, Hash)]
 pub enum Operator {
     Not,
     And,
