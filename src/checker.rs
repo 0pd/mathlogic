@@ -211,9 +211,11 @@ fn check_axiom9(node: &Node) -> bool {
 
 // !!A->A
 fn check_axiom10(node: &Node) -> bool {
-    if let Node::Not(node) = node {
-        if let Node::Not(_) = **node {
-            return true;
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Not(not) = &**ant {
+            if let Node::Not(inner_not) = &**not {
+                return cons.eq(inner_not);
+            }
         }
     }
 
@@ -293,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_axiom10() {
-        let expr = parse("!!A").unwrap();
+        let expr = parse("!!A->A").unwrap();
         assert!(check_axiom10(&expr));
     }
 

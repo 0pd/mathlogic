@@ -182,11 +182,8 @@ impl Scanner {
 
     fn take(&mut self, target: &str) -> Result<(), Error> {
         for char in target.chars() {
-            match self.take_char(&char) {
-                Ok(_) => {}
-                Err(error) => {
-                    return Err(error);
-                }
+            if let Err(error) = self.take_char(&char) {
+                return Err(error);
             }
         }
 
