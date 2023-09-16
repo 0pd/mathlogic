@@ -1,5 +1,5 @@
-use std::fmt;
-use std::fmt::Formatter;
+use std::fmt::{Formatter, Display, Debug};
+use std::ops::{BitAnd, BitOr, Not};
 
 pub fn parse(line: &str) -> Result<Node, Error> {
     let mut scanner = Scanner::new(line);
@@ -37,36 +37,17 @@ impl Node {
         Node::Var(name.to_string())
     }
 
-    pub(crate) fn not(node: Node) -> Node {
-        Node::UnaryExpr {
-            op: Operator::Not,
-            child: Box::new(node),
-        }
-    }
-
-    pub(crate) fn and(lhs: Node, rhs: Node) -> Node {
-        Node::binary(Operator::And, lhs, rhs)
-    }
-
-    pub(crate) fn or(lhs: Node, rhs: Node) -> Node {
-        Node::binary(Operator::Or, lhs, rhs)
-    }
-
     pub(crate) fn imply(lhs: Node, rhs: Node) -> Node {
-        Node::binary(Operator::Imply, lhs, rhs)
-    }
-
-    fn binary(op: Operator, lhs: Node, rhs: Node) -> Node {
         Node::BinaryExpr {
-            op,
+            op: Operator::Imply,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
         }
     }
 }
 
-impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Node {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Node::Var(name) => {
                 write!(f, "{}", name)
@@ -81,9 +62,44 @@ impl fmt::Display for Node {
     }
 }
 
-impl fmt::Debug for Node {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl Not for Node {
+    type Output = Node;
+
+    fn not(self) -> Self::Output {
+        Node::UnaryExpr {
+            op: Operator::Not,
+            child: Box::new(self),
+        }
+    }
+}
+
+impl BitAnd for Node {
+    type Output = Node;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Node::BinaryExpr {
+            op: Operator::And,
+            lhs: Box::new(self),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
+impl BitOr for Node {
+    type Output = Node;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Node::BinaryExpr {
+            op: Operator::Or,
+            lhs: Box::new(self),
+            rhs: Box::new(rhs),
+        }
     }
 }
 
@@ -95,8 +111,8 @@ pub enum Operator {
     Imply,
 }
 
-impl fmt::Debug for Operator {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Debug for Operator {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let sign = match self {
             Operator::Not => "!",
             Operator::And => "&",
@@ -121,7 +137,7 @@ fn parse_imply(scanner: &mut Scanner) -> Result<Node, Error> {
 fn parse_or(scanner: &mut Scanner) -> Result<Node, Error> {
     parse_and(scanner).and_then(|lhs| {
         if scanner.take("|").is_ok() {
-            parse_or(scanner).map(|rhs| Node::or(lhs, rhs))
+            parse_or(scanner).map(|rhs| lhs | rhs)
         } else {
             Ok(lhs)
         }
@@ -129,10 +145,9 @@ fn parse_or(scanner: &mut Scanner) -> Result<Node, Error> {
 }
 
 fn parse_and(scanner: &mut Scanner) -> Result<Node, Error> {
-    let lhs = parse_not(scanner);
-    let mut acc = lhs;
+    let mut acc = parse_not(scanner);
     while scanner.take("&").is_ok() {
-        acc = acc.and_then(|a| parse_not(scanner).map(|rhs| Node::and(a, rhs)));
+        acc = acc.and_then(|lhs| parse_not(scanner).map(|rhs| lhs & rhs));
     }
 
     acc
@@ -142,7 +157,7 @@ fn parse_not(scanner: &mut Scanner) -> Result<Node, Error> {
     match scanner.peek() {
         Some('!') => {
             scanner.pop();
-            parse_not(scanner).map(|r| Node::not(r))
+            parse_not(scanner).map(|r| !r)
         }
         Some('(') => {
             scanner.pop();
@@ -274,7 +289,7 @@ mod tests {
         let line = "!P";
         let result = parse(line);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Node::not(Node::var("P")));
+        assert_eq!(result.unwrap(), !Node::var("P"));
     }
 
     #[test]
@@ -282,7 +297,7 @@ mod tests {
         let line = "P&Q";
         let result = parse(line);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Node::and(Node::var("P"), Node::var("Q")));
+        assert_eq!(result.unwrap(), Node::var("P") & Node::var("Q"));
     }
 
     #[test]
@@ -290,10 +305,7 @@ mod tests {
         let line = "P&Q&R";
         let result = parse(line);
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            Node::and(Node::and(Node::var("P"), Node::var("Q")), Node::var("R"))
-        );
+        assert_eq!(result.unwrap(), Node::var("P") & Node::var("Q") & Node::var("R"));
     }
 
     #[test]
@@ -301,7 +313,7 @@ mod tests {
         let line = "P|Q";
         let result = parse(line);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Node::or(Node::var("P"), Node::var("Q")));
+        assert_eq!(result.unwrap(), Node::var("P") | Node::var("Q"));
     }
 
     #[test]
@@ -317,10 +329,7 @@ mod tests {
         let line = "!(P->Q)";
         let result = parse(line);
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            Node::not(Node::imply(Node::var("P"), Node::var("Q")))
-        );
+        assert_eq!(result.unwrap(), !Node::imply(Node::var("P"), Node::var("Q")));
     }
 
     #[test]
@@ -330,13 +339,7 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
-            Node::or(
-                Node::and(Node::not(Node::var("R11")), Node::var("S")),
-                Node::and(
-                    Node::and(Node::not(Node::var("T")), Node::var("U")),
-                    Node::var("V"),
-                ),
-            )
+            !Node::var("R11") & Node::var("S") | !Node::var("T") & Node::var("U") & Node::var("V")
         );
     }
 
@@ -350,14 +353,8 @@ mod tests {
             Node::imply(
                 Node::var("P"),
                 Node::imply(
-                    Node::not(Node::var("QQ")),
-                    Node::or(
-                        Node::and(Node::not(Node::var("R10")), Node::var("S")),
-                        Node::and(
-                            Node::and(Node::not(Node::var("T")), Node::var("U")),
-                            Node::var("V"),
-                        ),
-                    ),
+                    !Node::var("QQ"),
+                    !Node::var("R10") & Node::var("S") | !Node::var("T") & Node::var("U") & Node::var("V"),
                 ),
             )
         );
