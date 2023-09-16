@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use crate::parser::{Node, Operator};
+use crate::parser::Node;
 
 pub fn check(assumptions: &[Node], proof: &[Node]) -> Vec<Status> {
     let mut result = vec![];
@@ -21,7 +21,7 @@ pub fn check(assumptions: &[Node], proof: &[Node]) -> Vec<Status> {
         if status != Status::NotProven {
             proven.insert(statement.to_string(), index as u32);
 
-            if let Node::BinaryExpr { op: Operator::Imply, lhs, rhs } = statement {
+            if let Node::Imply(lhs, rhs) = statement {
                 let ant = lhs.to_string();
                 let cons = rhs.to_string();
                 if let Some(entry) = potential.get_mut(&cons) {
@@ -102,119 +102,122 @@ fn check_axioms(node: &Node) -> Option<u32> {
 
 // A->B->A
 fn check_axiom1(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Imply, |_, inner_cons| {
-            inner_cons.eq(ant)
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Imply(_, inner_cons) = &**cons {
+            return inner_cons.eq(ant);
+        }
+    }
+
+    false
 }
 
 // (A->B)->(A->B->C)->(A->C)
 fn check_axiom2(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Imply, |inner_ant, inner_cons| {
-            check_binary(ant, Operator::Imply, |a1, b1| {
-                check_binary(inner_ant, Operator::Imply, |a2, inner_inner_cons| {
-                    a1.eq(a2) && check_binary(inner_inner_cons, Operator::Imply, |b2, c2| {
-                        b1.eq(b2) && check_binary(inner_cons, Operator::Imply, |a3, c3| {
-                            a1.eq(a3) && c2.eq(c3)
-                        })
-                    })
-                })
-            })
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Imply(inner_ant, inner_cons) = &**cons {
+            if let Node::Imply(a1, b1) = &**ant {
+                if let Node::Imply(a2, inner_inner_cons) = &**inner_ant {
+                    if let Node::Imply(b2, c2) = &**inner_inner_cons {
+                        if let Node::Imply(a3, c3) = &**inner_cons {
+                            return a1.eq(a2) && b1.eq(b2) && a1.eq(a3) && c2.eq(c3);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 // A->B->A&B
 fn check_axiom3(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Imply, |inner_ant, inner_cons| {
-            check_binary(inner_cons, Operator::And, |lhs, rhs| {
-                lhs.eq(ant) && rhs.eq(inner_ant)
-            })
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Imply(inner_ant, inner_cons) = &**cons {
+            if let Node::And(lhs, rhs) = &**inner_cons {
+                return lhs.eq(ant) && rhs.eq(inner_ant);
+            }
+        }
+    }
+
+    false
 }
 
 // A&B->A
 // A&B->B
 fn check_axiom45(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(ant, Operator::And, |lhs, rhs| {
-            lhs.eq(cons) || rhs.eq(cons)
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::And(lhs, rhs) = &**ant {
+            return lhs.eq(cons) || rhs.eq(cons);
+        }
+    }
+
+    false
 }
 
 // A->A|B
 // B->A|B
 fn check_axiom67(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Or, |lhs, rhs| {
-            lhs.eq(ant) || rhs.eq(ant)
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Or(lhs, rhs) = &**cons {
+            return lhs.eq(ant) || rhs.eq(ant);
+        }
+    }
+
+    false
 }
 
 // (A->C)->(B->C)->(A|B->C)
 fn check_axiom8(node: &Node) -> bool {
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Imply, |inner_ant, inner_cons| {
-            check_binary(ant, Operator::Imply, |a1, c1| {
-                check_binary(inner_ant, Operator::Imply, |b2, c2| {
-                    c1.eq(c2) && check_binary(inner_cons, Operator::Imply, |inner_inner_ant, c3| {
-                        c1.eq(c3) && check_binary(inner_inner_ant, Operator::Or, |a3, b3| {
-                            a1.eq(a3) && b2.eq(b3)
-                        })
-                    })
-                })
-            })
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Imply(inner_ant, inner_cons) = &**cons {
+            if let Node::Imply(a1, c1) = &**ant {
+                if let Node::Imply(b2, c2) = &**inner_ant {
+                    if let Node::Imply(inner_inner_ant, c3) = &**inner_cons {
+                        if let Node::Or(a3, b3) = &**inner_inner_ant {
+                            return c1.eq(c3) && c1.eq(c2) && a1.eq(a3) && b2.eq(b3);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 // (A->B)->(A->!B)->!A
 fn check_axiom9(node: &Node) -> bool {
     fn check_not(node: &Node, negative: &Node) -> bool {
-        if let Node::UnaryExpr { op: Operator::Not, child } = negative {
-            node.eq(child)
+        if let Node::Not(inner_node) = negative {
+            node.eq(inner_node)
         } else {
             false
         }
     }
 
-    check_binary(node, Operator::Imply, |ant, cons| {
-        check_binary(cons, Operator::Imply, |inner_ant, not_a3| {
-            check_binary(ant, Operator::Imply, |a1, b1| {
-                check_binary(inner_ant, Operator::Imply, |a2, not_b2| {
-                    a1.eq(a2) && check_not(a1, not_a3) && check_not(b1, not_b2)
-                })
-            })
-        })
-    })
+    if let Node::Imply(ant, cons) = node {
+        if let Node::Imply(inner_ant, not_a3) = &**cons {
+            if let Node::Imply(a1, b1) = &**ant {
+                if let Node::Imply(a2, not_b2) = &**inner_ant {
+                    return a1.eq(a2) && check_not(a1, not_a3) && check_not(b1, not_b2);
+                }
+            }
+        }
+    }
+
+    false
 }
 
 // !!A->A
 fn check_axiom10(node: &Node) -> bool {
-    match node {
-        Node::UnaryExpr { op: Operator::Not, child } => {
-            if let Node::UnaryExpr { op: Operator::Not, child: _ } = **child {
-                true
-            } else {
-                false
-            }
+    if let Node::Not(node) = node {
+        if let Node::Not(_) = **node {
+            return true;
         }
-        _ => false
     }
-}
 
-fn check_binary<F>(node: &Node, operator: Operator, func: F) -> bool
-    where F: FnOnce(&Node, &Node) -> bool {
-    match node {
-        Node::BinaryExpr { op, lhs, rhs } if operator.eq(op) => func(lhs, rhs),
-        _ => false
-    }
+    false
 }
 
 #[cfg(test)]
@@ -350,7 +353,7 @@ mod tests {
         let expected = vec![
             Status::NotProven,
             Status::NotProven,
-            Status::NotProven
+            Status::NotProven,
         ];
         assert_eq!(result, expected);
     }

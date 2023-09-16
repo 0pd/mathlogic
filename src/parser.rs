@@ -21,15 +21,10 @@ pub enum Error {
 #[derive(Eq, PartialEq, Hash)]
 pub enum Node {
     Var(String),
-    UnaryExpr {
-        op: Operator,
-        child: Box<Node>,
-    },
-    BinaryExpr {
-        op: Operator,
-        lhs: Box<Node>,
-        rhs: Box<Node>,
-    },
+    Not(Box<Node>),
+    And(Box<Node>, Box<Node>),
+    Or(Box<Node>, Box<Node>),
+    Imply(Box<Node>, Box<Node>),
 }
 
 impl Node {
@@ -38,11 +33,7 @@ impl Node {
     }
 
     pub(crate) fn imply(lhs: Node, rhs: Node) -> Node {
-        Node::BinaryExpr {
-            op: Operator::Imply,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        }
+        Node::Imply(Box::new(lhs), Box::new(rhs))
     }
 }
 
@@ -52,11 +43,17 @@ impl Display for Node {
             Node::Var(name) => {
                 write!(f, "{}", name)
             }
-            Node::UnaryExpr { op, child } => {
-                write!(f, "({:?}{})", op, child)
+            Node::Not(node) => {
+                write!(f, "({})", node)
             }
-            Node::BinaryExpr { op, lhs, rhs } => {
-                write!(f, "({:?},{},{})", op, lhs, rhs)
+            Node::And(lhs, rhs) => {
+                write!(f, "(&,{},{})", lhs, rhs)
+            }
+            Node::Or(lhs, rhs) => {
+                write!(f, "(|,{},{})", lhs, rhs)
+            }
+            Node::Imply(lhs, rhs) => {
+                write!(f, "(->,{},{})", lhs, rhs)
             }
         }
     }
@@ -72,10 +69,7 @@ impl Not for Node {
     type Output = Node;
 
     fn not(self) -> Self::Output {
-        Node::UnaryExpr {
-            op: Operator::Not,
-            child: Box::new(self),
-        }
+        Node::Not(Box::new(self))
     }
 }
 
@@ -83,11 +77,7 @@ impl BitAnd for Node {
     type Output = Node;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        Node::BinaryExpr {
-            op: Operator::And,
-            lhs: Box::new(self),
-            rhs: Box::new(rhs),
-        }
+        Node::And(Box::new(self), Box::new(rhs))
     }
 }
 
@@ -95,32 +85,7 @@ impl BitOr for Node {
     type Output = Node;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        Node::BinaryExpr {
-            op: Operator::Or,
-            lhs: Box::new(self),
-            rhs: Box::new(rhs),
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Hash)]
-pub enum Operator {
-    Not,
-    And,
-    Or,
-    Imply,
-}
-
-impl Debug for Operator {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        let sign = match self {
-            Operator::Not => "!",
-            Operator::And => "&",
-            Operator::Or => "|",
-            Operator::Imply => "->",
-        };
-
-        write!(f, "{}", sign)
+        Node::Or(Box::new(self), Box::new(rhs))
     }
 }
 
